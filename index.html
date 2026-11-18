@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Howl's Starlight Onsen</title>
+  <link rel="stylesheet" href="main.css" />
+</head>
+<body>
+  <canvas id="game" tabindex="0"></canvas>
+
+  <header id="hud-top">
+    <div id="banner">🌸 Starlight Onsen Valley — Seven Hot Springs &amp; Sakura Groves</div>
+
+    <div class="hud-meters">
+      <div class="meter-group" title="Soak in any hot spring to raise Warmth">
+        <span class="meter-label">♨ Warmth</span>
+        <div class="meter-track">
+          <div id="warmth-fill" style="width: 68%;"></div>
+        </div>
+      </div>
+
+      <div class="meter-group" title="Stroll among cherry blossoms &amp; companions to raise Serenity">
+        <span class="meter-label">✨ Serenity</span>
+        <div class="meter-track">
+          <div id="serenity-fill" style="width: 74%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-controls">
+      <button type="button" id="btn-time" class="hud-btn">🌙 Starlight Night</button>
+      <button type="button" id="btn-sound" class="hud-btn">🔊 Sound: ON</button>
+      <button type="button" id="btn-map" class="hud-btn map-btn">🗺️ Map [M]</button>
+    </div>
+  </header>
+
+  <aside id="minimap" title="Click anywhere on the radar to fast-travel">
+    <canvas id="minimap-map" width="220" height="110"></canvas>
+    <div class="minimap-caption">🧭 3-Realm Radar • Click to Travel</div>
+  </aside>
+
+  <div id="map-overlay" class="hidden">
+    <div class="world-map-card">
+      <div class="world-map-header">
+        <span>🗺️ HOWL'S STARLIGHT REALMS — FAST-TRAVEL ATLAS</span>
+        <button type="button" id="btn-close-map" class="hud-btn">✕ Close [Esc / M]</button>
+      </div>
+      <canvas id="world-map" width="880" height="260"></canvas>
+      <div id="map-hover-label">Click any glowing landmark beacon to fast-travel across the three realms</div>
+    </div>
+  </div>
+
+  <!-- Grounds trees & flora to world coordinates, removes sway jitter, and populates extra groves -->
+  <script>
+    (function () {
+      "use strict";
+
+      let camX = 400;
+      let camY = 385;
+      const capturedSprites = {};
+      const stationaryAnchors = new Map();
+
+      function lockStationaryX(yKey, rawX) {
+        let list = stationaryAnchors.get(yKey);
+        if (!list) {
+          list = [rawX];
+          stationaryAnchors.set(yKey, list);
+          return rawX;
+        }
+        for (let i = 0; i < list.length; i++) {
+          if (Math.abs(rawX - list[i]) <= 2) return list[i];
+        }
+        list.push(rawX);
+        return rawX;
+      }
+
+      // Fallback pixel-art tree sprites until style.js draws its own on screen
+      function buildFallbackTrees() {
+        function makeSpr(w, h, fn) {
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          const g = c.getContext("2d");
+          g.imageSmoothingEnabled = false;
+          fn(g);
+          return c;
+        }
+        function puff(g, cx, cy, rx, ry, c1, c2, c3) {
+          g.fillStyle = c1;
+          g.beginPath(); g.ellipse(cx, cy + 2, rx, ry, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = c2;
+          g.beginPath(); g.ellipse(cx, cy, rx - 1, ry - 1, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = c3;
+          g.beginPath(); g.ellipse(cx - 2, cy - 3, rx * 0.7, ry * 0.65, 0, 0, Math.PI * 2); g.fill();
+        }
+        capturedSprites.sakura = makeSpr(102, 128, (g) => {
+          g.fillStyle = "rgba(14,24,16,0.32)";
+          g.beginPath(); g.ellipse(51, 121, 28, 6.5, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = "#3b231d"; g.fillRect(48, 56, 6, 64); g.fillRect(46, 115, 10, 5);
+          g.fillStyle = "#5c3830"; g.fillRect(49, 56, 3, 63);
+          puff(g, 28, 52, 22, 16, "#b54872", "#e06c99", "#ff9ec4");
+          puff(g, 74, 52, 22, 16, "#b54872", "#e06c99", "#ff9ec4");
+          puff(g, 51, 56, 25, 17, "#c2527d", "#eb7aa6", "#ffadd0");
+          puff(g, 34, 35, 23, 17, "#cc5c87", "#f288b2", "#ffb8d6");
+          puff(g, 68, 35, 23, 17, "#cc5c87", "#f288b2", "#ffb8d6");
+          puff(g, 51, 24, 27, 19, "#d66792", "#fa96be", "#ffc7df");
+        });
+        capturedSprites.oak = makeSpr(96, 126, (g) => {
+          g.fillStyle = "rgba(14,24,16,0.34)";
+          g.beginPath(); g.ellipse(48, 119, 26, 6.5, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = "#3d2515"; g.fillRect(45, 56, 6, 62); g.fillRect(43, 113, 10, 5);
+          g.fillStyle = "#694228"; g.fillRect(46, 56, 3, 61);
+          puff(g, 30, 52, 20, 16, "#1b4219", "#2c6628", "#45913f");
+          puff(g, 66, 52, 20, 16, "#1b4219", "#2c6628", "#45913f");
+          puff(g, 48, 56, 24, 17, "#1e4a1c", "#32732d", "#4ca145");
+          puff(g, 34, 36, 21, 16, "#22521f", "#388033", "#57b04f");
+          puff(g, 62, 36, 21, 16, "#22521f", "#388033", "#57b04f");
+          puff(g, 48, 25, 25, 18, "#285e24", "#42913c", "#66c25d");
+        });
+        capturedSprites.willow = makeSpr(104, 126, (g) => {
+          g.fillStyle = "rgba(14,24,16,0.32)";
+          g.beginPath(); g.ellipse(52, 119, 28, 6.5, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = "#452c1b"; g.fillRect(49, 54, 6, 64);
+          puff(g, 32, 44, 22, 16, "#23542d", "#367d44", "#52ab63");
+          puff(g, 72, 44, 22, 16, "#23542d", "#367d44", "#52ab63");
+          puff(g, 52, 32, 28, 19, "#2a6335", "#439452", "#64c475");
+          for (let vx = 16; vx <= 88; vx += 6) {
+            g.fillStyle = vx % 12 === 0 ? "#4ba35a" : "#357a41";
+            g.fillRect(vx, 42, 3, 38 + ((vx * 7) % 20));
+          }
+        });
+        capturedSprites.pine = makeSpr(82, 130, (g) => {
+          g.fillStyle = "rgba(14,24,16,0.34)";
+          g.beginPath(); g.ellipse(41, 123, 22, 5.5, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = "#3b2314"; g.fillRect(39, 76, 4, 46);
+          const tiers = [[94, 32, "#153825", "#215438"], [74, 27, "#1a452e", "#286342"], [54, 21, "#205237", "#31754f"], [34, 15, "#276141", "#3b8a5e"]];
+          for (const [by, hw, c1, c2] of tiers) {
+            g.fillStyle = c1;
+            g.beginPath(); g.moveTo(41 - hw, by); g.lineTo(41, by - 30); g.lineTo(41 + hw, by); g.closePath(); g.fill();
+            g.fillStyle = c2;
+            g.beginPath(); g.moveTo(41 - hw + 4, by - 3); g.lineTo(41, by - 30); g.lineTo(41 + hw - 6, by - 4); g.closePath(); g.fill();
+          }
+        });
+      }
+      buildFallbackTrees();
+
+      // Generate ~220 lush, stationary extra trees across all three realms
+      const EXTRA_TREES = [];
+      (function generateExtraForest() {
+        const BLOCKED_BOXES = [
+          [-1155, 220, 185, 135], [-845, 215, 150, 145], [-555, 220, 215, 140],
+          [-1815, 315, 430, 245], [-1380, 365, 245, 190], [-1085, 375, 215, 180],
+          [-835, 385, 195, 170], [-585, 380, 195, 175], [-360, 385, 205, 170],
+          [-1835, 615, 205, 145], [-1795, 805, 175, 145], [-1565, 800, 210, 150],
+          [-1205, 805, 150, 145], [-1005, 805, 185, 145], [-685, 805, 195, 145],
+          [-460, 800, 195, 150], [-1575, 1068, 195, 118], [-1205, 1068, 195, 118],
+          [-975, 1072, 155, 114], [-645, 1055, 110, 132], [515, 315, 410, 195],
+          [1110, 885, 145, 105], [2790, 350, 320, 205],
+          // Decks & Canals
+          [555, 505, 330, 42], [696, 547, 48, 132], [375, 672, 72, 162],
+          [1005, 676, 72, 110], [645, 834, 150, 46],
+          [-1295, 540, 66, 682], [-775, 540, 66, 682], [-1760, 998, 1410, 52]
+        ];
+
+        const BLOCKED_SPRINGS = [
+          [720, 760, 116, 75], [410, 605, 84, 57], [1045, 605, 88, 60],
+          [335, 850, 52, 38], [445, 870, 50, 36], [1030, 835, 80, 54],
+          [565, 955, 76, 50]
+        ];
+
+        function isTreeSafe(x, y) {
+          const shoreY = x < -140 ? 1222 : 1195 + Math.sin(x * 0.0028) * 24 + Math.cos(x * 0.0061) * 9;
+          if (y < 245 || y > shoreY - 22) return false;
+          // Keep main roads, promenades, and fountain clear
+          if (y > 655 && y < 735 && x > -1760 && x < 3380) return false;
+          if (y > 1080 && y < 1150 && x > -1650 && x < -420) return false;
+          if (x > 680 && x < 760 && y > 530 && y < 1205) return false;
+          if (x > 1945 && x < 2015 && y > 500 && y < 1205) return false;
+          if (x > 2910 && x < 2985 && y > 550 && y < 1205) return false;
+          if (Math.hypot(x + 1035, y - 695) < 82) return false;
+
+          for (const [bx, by, bw, bh] of BLOCKED_BOXES) {
+            if (x > bx - 28 && x < bx + bw + 28 && y > by - 24 && y < by + bh + 28) return false;
+          }
+          for (const [sx, sy, rx, ry] of BLOCKED_SPRINGS) {
+            if (Math.hypot((x - sx) / (rx + 28), (y - sy) / (ry + 28)) < 1.05) return false;
+          }
+          for (const t of EXTRA_TREES) {
+            if (Math.hypot(x - t.x, y - t.y) < 58) return false;
+          }
+          return true;
+        }
+
+        let s = 9187;
+        const rnd = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+
+        for (let i = 0; i < 950 && EXTRA_TREES.length < 220; i++) {
+          const x = Math.round(-1810 + rnd() * 5380);
+          const y = Math.round(248 + rnd() * 930);
+          if (!isTreeSafe(x, y)) continue;
+
+          let kind = "oak";
+          const r = rnd();
+          if (x < -120) {
+            kind = r < 0.65 ? "sakura" : "oak";
+          } else if (x < 1520) {
+            if (y < 305 && r < 0.25) kind = "pine";
+            else if (y > 1030 && r < 0.42) kind = "willow";
+            else kind = r < 0.78 ? "sakura" : "oak";
+          } else {
+            if (y > 1020 && r < 0.45) kind = "willow";
+            else kind = r < 0.56 ? "sakura" : "oak";
+          }
+          EXTRA_TREES.push({ x, y, kind });
+        }
+        EXTRA_TREES.sort((a, b) => a.y - b.y);
+      })();
+
+      // 1. Track exact camera coordinates each frame from the first trail moveTo
+      const origMoveTo = CanvasRenderingContext2D.prototype.moveTo;
+      CanvasRenderingContext2D.prototype.moveTo = function (x, y) {
+        if (this.canvas && this.canvas.id === "game" && this.lineCap === "round" && this.lineWidth === 34) {
+          camX = -1750 - x;
+          camY = 695 - y;
+        }
+        return origMoveTo.call(this, x, y);
+      };
+
+      // 2. Ground trees/flora/props to world coordinates and lock tree X to stop swaying
+      const origDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+      CanvasRenderingContext2D.prototype.drawImage = function (img, ...args) {
+        if (this.canvas && this.canvas.id === "game" && img && args.length >= 2) {
+          const w = img.width || 0;
+          const h = img.height || 0;
+
+          // Ground tiles (64x64) already subtract camera.x / camera.y in style.js
+          if (!(w === 64 && h === 64)) {
+            let dx = args[0];
+            let dy = args[1];
+
+            if (h >= 120) {
+              // Capture style.js's exact tree sprite canvases by width
+              if (w === 102) capturedSprites.sakura = img;
+              else if (w === 96) capturedSprites.oak = img;
+              else if (w === 82) capturedSprites.pine = img;
+              else if (w === 104) capturedSprites.willow = img;
+
+              dx = lockStationaryX(dy, dx);
+            }
+
+            args[0] = Math.round(dx - camX);
+            args[1] = Math.round(dy - camY);
+          }
+        }
+        return origDrawImage.call(this, img, ...args);
+      };
+
+      // 3. Render our extra stationary groves right before the atmospheric sky-tint wash
+      const origFillRect = CanvasRenderingContext2D.prototype.fillRect;
+      CanvasRenderingContext2D.prototype.fillRect = function (x, y, w, h) {
+        if (
+          this.canvas &&
+          this.canvas.id === "game" &&
+          x === 0 &&
+          y === 0 &&
+          w === this.canvas.width &&
+          h === this.canvas.height &&
+          typeof this.fillStyle === "string" &&
+          this.fillStyle.startsWith("rgba(")
+        ) {
+          const vw = this.canvas.width;
+          const vh = this.canvas.height;
+          for (let i = 0; i < EXTRA_TREES.length; i++) {
+            const tr = EXTRA_TREES[i];
+            const spr = capturedSprites[tr.kind] || capturedSprites.sakura;
+            if (!spr) continue;
+            const sx = Math.round(tr.x - spr.width / 2 - camX);
+            const sy = Math.round(tr.y - spr.height + 7 - camY);
+            if (sx + spr.width < -10 || sx > vw + 10 || sy + spr.height < -10 || sy > vh + 10) continue;
+            origDrawImage.call(this, spr, sx, sy);
+          }
+        }
+        return origFillRect.call(this, x, y, w, h);
+      };
+    })();
+  </script>
+
+  <script src="style.js"></script>
+</body>
+</html>
